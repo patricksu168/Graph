@@ -1,0 +1,284 @@
+/*
+#include "Graph.h"
+#include <memory>
+#include <iostream>
+#include <vector>
+*/
+
+#define NAME_OF( v ) #v
+
+//copy constructor
+template <typename N, typename E>
+Graph<N,E>::Graph(const Graph& g) {
+	for (auto node: g.getNodes()) {
+		if (node) {
+			//add individual node to new graph from passed in graph
+			addNode(node->get_data());
+		}
+	}
+	for (auto node: g.getNodes()) {
+		const N& src = node->get_data();
+		for (auto e: node->getOutEdges()) {
+			//copy edges one by one
+			const N& dst = e->getTo().lock()->get_data();
+			const E& w = e->get_weight();
+			this->addEdge(src, dst, w);
+		}
+	}
+
+}
+
+//copy assignment
+template <typename N, typename E>
+Graph<N, E>& Graph<N, E>::operator=(const Graph<N, E>& g) {
+	if (this != &g) {
+		//clean content of the old graph first
+		this->clear();
+		for (auto node: g.getNodes()) {
+			if (node) {
+				addNode(node->get_data());
+				const N& src = node->get_data();
+				for (auto e: node->getOutEdges()) {
+					const N& dst = e->getTo().lock()->get_data();
+					const E& w = e->get_weight();
+					this->addEdge(src, dst, w);
+				}
+			}
+		}
+	}
+	return *this;
+}
+
+ 
+//move assignment
+template <typename N, typename E>
+Graph<N, E>& Graph<N, E>::operator=(Graph<N, E>&& g) {
+	if (this != &g) {
+		//clean up content of old graph
+		this->clear();
+		this->nodes = std::move(g.nodes);
+		//validate passed in graph
+		g.clear();
+	}	
+	return *this;
+}
+
+//add a new node to the graph
+template <typename N, typename E>
+bool Graph<N, E>::addNode(const N& val) {
+	for (auto n: nodes) {
+		//return false if node already exists
+		if (n->get_data() == val) return false;
+	}
+	Node new_node{val};
+	nodes.push_back(std::make_shared<Node>(new_node));
+	return true;
+}
+
+//print out content of all nodes
+template <typename N, typename E>
+void Graph<N, E>::printNodes() const{
+	//need to move nodes to a vector before sorting so that pointers
+	//do not get sorted instead
+	std::vector<Node> nodes_vector;
+	for (auto n: nodes) nodes_vector.push_back(*n);
+	std::sort(nodes_vector.begin(), nodes_vector.end());
+	for (auto node :nodes_vector) {
+		std::cout << node.get_data() << std::endl;
+	}
+}
+
+//return whether there exists a node that stores the passed in data
+template <typename N, typename E>
+bool Graph<N, E>::isNode(const N& val) const{
+	for (auto node: nodes) {
+		if (node->get_data() == val) return true;
+	}
+	return false;
+}
+
+//add an edge to the graph
+template <typename N, typename E>
+bool Graph<N, E>::addEdge(const N& src, const N& dst, const E& w) {
+	for (auto n: nodes) {
+		if (n->get_data() == src) {
+			for (auto e: n->getOutEdges()) {
+				if (e->get_weight() == w){ 
+					//return false if the edge with the same dst node and weight already
+					//exists in the graph
+					if (e->getTo().lock()->get_data() == dst) return false;
+				}
+			}
+		}
+	}
+
+	//check if the src and dst nodes exist in the graph
+	std::weak_ptr<Node> temp, temp2;
+	for (auto n:nodes) {
+		if (src == n->get_data()) temp = n;
+		if (dst == n->get_data()) temp2 = n;
+	}
+	//if they don't throw an exception
+	if (temp.expired() || temp2.expired()) throw std::runtime_error("node not found");
+	auto new_edge = std::make_shared<Edge>(Edge(w, temp, temp2));
+	auto temp_ref = temp.lock();
+	auto temp2_ref = temp2.lock();
+	if (temp_ref) temp_ref->getOutEdges().push_back(new_edge);
+	return true;
+	
+}
+
+//print out all the out edges of the node that stores val
+template <typename N, typename E>
+void Graph<N, E>::printEdges(const N& val) const {
+	bool hasN = false;
+	for (auto n: nodes) {
+		//only executes the function body if the node is found
+		if (n->get_data() == val) {
+			std::cout << "Edges attached to " << n->get_data() << std::endl;
+			hasN = true;
+
+			//same as printNodes extract all the edges objects so that
+			//we do not sort the pointer instead
+			std::vector<Edge> edges_vector;
+			for (auto e:n->getOutEdges()) edges_vector.push_back(*e);
+			std::sort(edges_vector.begin(), edges_vector.end());
+			for (auto e: edges_vector) {
+				auto dst_node_ref = e.getTo().lock();
+				std::cout << dst_node_ref->get_data() << " " << e.get_weight() << std::endl;
+			}
+			if (edges_vector.size() == 0) std::cout << "(null)" << std::endl;
+		}
+	}
+	if (!hasN) throw std::runtime_error("node not found");
+}
+
+//check if node src and dst are connected in the graph
+template <typename N, typename E>
+bool Graph<N, E>::isConnected(const N& src, const N& dst) const{
+	std::weak_ptr<Node> temp, temp2;
+	for (auto n:nodes) {
+		if (src == n->get_data()) temp = n;
+		if (dst == n->get_data()) temp2 = n;
+	}
+	if (temp.expired() || temp2.expired()) throw std::runtime_error("node not found");
+	auto temp_ref = temp.lock();
+	if (temp_ref) {
+		for (auto e: temp_ref->getOutEdges()) {
+			auto dst_node = e->getTo().lock();
+			if (dst == dst_node->get_data()) return true;
+		}
+	}
+	return false;
+}
+
+
+//replace content of the node that stores oldData with newData
+template <typename N, typename E>
+bool Graph<N, E>::replace(const N& oldData, const N& newData) {
+	std::weak_ptr<Node> temp;
+	
+	//flag shows if node exists in the graph
+	int flag = 0;
+	for (begin(); !end(); next()) {
+		if (value() == oldData) {
+			temp = *niterator;
+			//increment flag if node is found
+			flag++;
+		}
+		if (value() == newData) return false;
+	}
+	if (flag == 0) throw std::runtime_error("node not found");
+	auto cur = temp.lock();
+	cur->setData(newData);
+	return true;
+}
+
+//delete node that stores n and its out going edges in the graph
+//as well as out going edges of other nodes where the edge goes to this node
+template <typename N, typename E>
+void Graph<N, E>::deleteNode(const N& n) noexcept{
+	for (auto node =  nodes.begin(); node != nodes.end(); node++) {
+		if ((*node)->get_data() == n) {
+			for (auto m: nodes) {
+				auto e = m->getOutEdges().begin();
+				while (e != m->getOutEdges().end()) {
+					if ((*e)->getTo().lock()->get_data() == n) {
+						//delete out going edges that goes to the to-be-deleted node
+						e = m->getOutEdges().erase(e);
+					}else{
+						if (e != m->getOutEdges().end()) e++;
+					}
+				}
+
+			}
+			//delete node and its out going edges
+			(*node)->getOutEdges().clear();
+			node = nodes.erase(node);
+			break;
+		}
+	}
+}
+
+//delete an edge that goes from src to dst and has weight w;
+template <typename N, typename E>
+void Graph<N, E>::deleteEdge(const N& src, const N& dst, const E& w) noexcept{
+	for (auto n: nodes) {
+		if (n->get_data() == src) {
+			for (auto e = n->getOutEdges().begin(); e!= n->getOutEdges().end(); e++) {
+				if ((*e)->getTo().lock()->get_data() == dst &&
+					(*e)->get_weight() == w){
+					n->getOutEdges().erase(e);
+					break;
+				}
+			}
+		}
+	}
+}
+
+//merge node with oldData to node with newData, duplicated edges are removed
+template <typename N, typename E>
+void Graph<N, E>::mergeReplace(const N& oldData, const N& newData) {
+	std::weak_ptr<Node> oldNode, newNode;
+	for (auto n: nodes) {
+		if (n->get_data() == oldData) oldNode = n;
+		if (n->get_data() == newData) newNode = n;  
+	}
+	if (oldNode.expired() || newNode.expired()) throw std::runtime_error("node not found");
+	auto oldNode_ref = oldNode.lock();
+	auto newNode_ref = newNode.lock();
+	for (auto n: nodes) {
+		for (auto e: n->getOutEdges()) {
+			//change the dst node of out going edges that arrived at oldNode to new Node
+			//via setter function of Edge class
+			if (e->getTo().lock()->get_data() == oldData) e->set_toNode(newNode_ref); 
+		}
+	}
+	//this boolean detects whether the iterated edge is duplicated
+	bool duplicated = false;
+	for (auto e: oldNode_ref->getOutEdges()) {
+		const N& dst = e->getTo().lock()->get_data();
+		const E& w = e->get_weight();
+		for (auto f: newNode_ref->getOutEdges()) {
+			if (f->get_weight() == w && f->getTo().lock()->get_data() == dst) {
+				duplicated = true;
+				break;
+			}
+		}
+		if (!duplicated) {
+			//use std:move to transfer resource of edges of old node to new node
+			std::shared_ptr<Edge> transfer_edge = std::move(e);
+			e = nullptr;
+			newNode_ref->getOutEdges().push_back(transfer_edge);
+		}
+	}
+	//remove old node from the graph
+	for (auto iter = nodes.begin(); iter != nodes.end(); iter++) {
+		if ((*iter)->get_data() == oldData) iter = nodes.erase(iter);
+	}
+}
+
+
+
+
+
